@@ -9,19 +9,21 @@ include 'input.asm'
 include 'sys.asm'
 
 _start:
-; test _getchar
+	call _input_init
+;; test _getchar
 ;.loop:
 ;	call _getchar
 ;	or al, al
 ;	jz .eloop
 ;	mov byte [writebuf], al
 ;	mov eax, 0x01
-;	mov edi, eax
+;	mov edi, 0x02
 ;	mov rsi, writebuf
 ;	mov edx, eax
 ;	syscall
 ;	jmp .loop
 ;.eloop:
+;	int3
 	mov [line], 0x00
 	call main_loop
 	cmp qword [udef_macros], 0x00
@@ -173,12 +175,29 @@ _macro:
 				; identifier
 	call _get_identifier
 	mov [rsp], rax ; length is on the stack
+
 	jmp .found_identifier
 .symbol_identifier:
 	call _consume
 	mov rdi, identifier
 	stosb
 .found_identifier:
+; test identifier
+;push rdi
+;push rsi
+;push rdx
+;push rax
+;.dbg:
+;	mov rdi, 0x02
+;	mov rsi, identifier
+;	mov rdx, [rsp]
+;	mov rax, 0x01
+;	syscall	
+;pop rax
+;pop rdx
+;pop rsi
+;pop rdi
+
 	; search through macros
 	mov rbx, las_macros.null
 .macro_loop:
@@ -202,6 +221,8 @@ _macro:
 	jnz .embed
 	test [rbx + LAS_MACRO.flags], LAS_LIST
 	jnz .list
+	test [rbx + LAS_MACRO.flags], LAS_STRMACRO
+	jnz .strmacro
 .error:
 	int3
 .embed:
@@ -215,6 +236,13 @@ _macro:
 	inc eax
 	mov edi, eax
 	syscall
+	jmp main_loop
+.strmacro:
+	mov rsi, [rbx + LAS_MACRO.ptr]
+	lodsd
+	xchg eax, edi
+	xchg rdi, rsi
+	call _input_append
 	jmp main_loop
 
 _add_macro: ; (void) -> LAS_MACRO*
@@ -255,6 +283,7 @@ MAC_null:
 
 MAC_define:
 	; \\<identifier> [ <list> ]
+	; \\<identifier> { <string> }
 	call _add_macro
 	mov rdi, [latest]
 	mov [rdi], rax
@@ -279,7 +308,7 @@ MAC_define:
 	mov [rsi + LAS_MACRO.flags], 0x00 ; not embedded
 	mov [rsi + LAS_MACRO.next], 0x00 ; fix the list
 
-; debug macros
+;; debug macros
 ;	mov rbx, las_macros.null
 ;.dbg_loop:
 ;	mov rsi, [rbx + LAS_MACRO.name]
@@ -293,18 +322,78 @@ MAC_define:
 ;	mov rbx, [rbx + LAS_MACRO.next]
 ;	or rbx, rbx
 ;	jnz .dbg_loop
+;	int3
 
 	call _skip_whitespace
 	call _getchar
 
 	cmp al, '['
-	je .byte_list
+	je MACdef_byte_list
+	cmp al, '{'
+	je MACdef_strmacro
 .error:
 	int3
-.byte_list:
+MACdef_byte_list:
 	call _parse_byte_list
 	mov rsi, [latest]
 	sub rsi, LAS_MACRO.next
 	mov [rsi + LAS_MACRO.ptr], rax
 	mov [rsi + LAS_MACRO.flags], LAS_LIST
 	jmp main_loop
+MACdef_strmacro:
+	; &content	r12
+	; length	r13
+	; capacity	r14
+	; nesting	r15
+	push r12
+	push r13
+	push r14
+	push r15
+
+	mov edi, PAGE_SIZE
+	call _sys_malloc
+
+	mov r12, [latest]
+	sub r12, LAS_MACRO.next
+	mov [r12 + LAS_MACRO.flags], LAS_STRMACRO
+	add r12, LAS_MACRO.ptr
+	mov [r12], rax
+	mov r13d, 0x04		; length
+	mov r14d, PAGE_SIZE	; capacity
+	mov r15d, 0x01
+.loop:
+	call _getchar
+	or al, al
+	jz .error
+	cmp al, '}'
+	jne .add_char
+	dec r15
+	jz .end_loop
+.add_char:
+	mov rdi, [r12]
+	add rdi, r13
+	stosb
+	inc r13d
+
+	cmp r13d, r14d
+	jb .loop
+	; we need to realloc rbx and do all that
+	add r14d, PAGE_SIZE
+
+	mov rdi, [r12]
+	mov esi, r14d
+	call _sys_realloc ; realloc buffer
+	mov [r12], rax
+	jmp .loop
+.end_loop:
+	mov rsi, [r12]
+	sub r13d, 0x04
+	mov dword [rsi], r13d
+	pop r15
+	pop r14
+	pop r13
+	pop r12
+	jmp main_loop
+.error:
+	int3
+	nop

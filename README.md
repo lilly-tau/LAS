@@ -1,8 +1,13 @@
 # LAS
 
 ```
-; simple macro (simply stores a byte list
-\\print[ CD 10 ]
+; simple macro (simply stores a byte list)
+\\int[CD]
+\\movax[B8]
+\\incax[40]
+\\nextchar{\incax\int[10]} ; this is a text macro
 
-[B8 48 0E] \print [40] \print
+\movax[0E48]
+\int[10]
+\nextchar
 ```

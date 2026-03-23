@@ -13,4 +13,5 @@ define MREMAP_MAYMOVE	0x01
 define PAGE_SIZE	0x10000
 
 define LAS_EMBEDDED	0x1 ; Macro is written in assembly
-define LAS_LIST		0x2 ; Macro is a byte list
+define LAS_LIST		0x2 ; Macro is a byte list '[]'
+define LAS_STRMACRO	0x4 ; Macro is a string macro '{}'

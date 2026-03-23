@@ -23,21 +23,13 @@ udef_macros.length dd ? ; only allowing 4GB of macros seems fine
 udef_macros.capacity dd ?
 udef_macros dq 0x00 ; should be mmapped
 
-
-struc (fnname) las_macro _ptr*, _name*, _flags*, _next
-	last equ (fnname)
-	.name	dq _name
-	.ptr	dq _ptr
-	.flags	dq _flags
-	match ,_next
-		.next	dq last
-	else
-		.next	dq _next
-	end match
-end struc
 virtual at 0
-	LAS_MACRO las_macro 0, 0, 0, 0
-	sizeof.LAS_MACRO = $
+LAS_MACRO:
+	.name	dq 0x00
+	.ptr	dq 0x00
+	.flags	dq 0x00
+	.next   dq 0x00
+sizeof.LAS_MACRO = $
 end virtual
 
 latest dq las_macros.def.next
@@ -55,3 +47,15 @@ las_macros:
 .names:
 	strdef .names.def, "\"
 	strdef .names.null, "null"
+
+virtual at 0
+INPUT_OBJ:
+.index		dd 0x00
+.capacity	dd 0x00
+.buffer		dq 0x00
+sizeof.INPUT_OBJ = $
+end virtual
+input_stack:
+.ptr		dq 0
+.top		dd 0
+.capacity	dd 0
