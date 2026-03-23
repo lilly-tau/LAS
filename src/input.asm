@@ -28,6 +28,8 @@ _input_append: ; (void *buffer, size_t capacity)
 	pop rdi
 	mov eax, [input_stack.top]
 	dec eax
+	mov ecx, sizeof.INPUT_OBJ
+	mul ecx
 	mov rbx, [input_stack.ptr]
 	add rbx, rax
 	mov dword [rbx], 0x00
@@ -42,6 +44,12 @@ _peek: ; (void) -> char
 	or eax, eax
 	jz .stdin
 	dec eax
+
+	or eax, eax
+	jz .nodbg
+.nodbg:
+	mov ebx, sizeof.INPUT_OBJ
+	mul ebx
 
 	mov rsi, [input_stack.ptr]
 	add rsi, rax

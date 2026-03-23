@@ -365,10 +365,23 @@ MACdef_strmacro:
 	call _getchar
 	or al, al
 	jz .error
+	cmp al, '`'
+	jne .not_escaped
+		call _getchar
+		jmp short .add_char
+	.not_escaped:
 	cmp al, '}'
-	jne .add_char
-	dec r15
-	jz .end_loop
+	jne .not_close
+		dec r15
+		jz .end_loop
+		jmp short .add_char
+	.not_close:
+	cmp al, '{'
+	jne .not_open
+		inc r15
+		jz .end_loop
+		jmp short .add_char
+	.not_open:
 .add_char:
 	mov rdi, [r12]
 	add rdi, r13
@@ -378,6 +391,7 @@ MACdef_strmacro:
 	cmp r13d, r14d
 	jb .loop
 	; we need to realloc rbx and do all that
+	int3
 	add r14d, PAGE_SIZE
 
 	mov rdi, [r12]
@@ -386,6 +400,13 @@ MACdef_strmacro:
 	mov [r12], rax
 	jmp .loop
 .end_loop:
+;; test strmacro contents
+;	mov rax, 0x01
+;	mov rdi, 0x02
+;	mov rsi, [r12]
+;	mov edx, r13d
+;	syscall
+
 	mov rsi, [r12]
 	sub r13d, 0x04
 	mov dword [rsi], r13d

@@ -1,7 +1,7 @@
 ; This is a comment
 
-\\program{ ; This is a text macro
-\\movax[B8]
+\\program{ ; This is a text macroabcdefg
+\\movax`{[B8]`}
 \\int[CD]
 \\incax[40]
 
