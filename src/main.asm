@@ -9,7 +9,16 @@ include 'input.asm'
 include 'sys.asm'
 
 _start:
-	call _input_init
+	mov rdi, input_stack
+	call _io_init
+	mov rdi, output_stack
+	call _io_init
+
+	mov rdi, PAGE_SIZE
+	call _sys_malloc
+	mov rdi, [output_stack.ptr]
+	mov [rdi + IO_OBJ.buffer], rax
+	mov [rdi + IO_OBJ.capacity], PAGE_SIZE
 ;; test _getchar
 ;.loop:
 ;	call _getchar
@@ -31,6 +40,19 @@ _start:
 		mov rdi, [udef_macros]
 		call _sys_free
 	.no_free_udef:
+
+	mov rsi, [output_stack.ptr]
+	mov edx, [rsi]
+	mov rsi, [rsi + 0x08]
+	mov rdi, 0x01
+	mov rax, 0x01
+	syscall
+
+	mov rdi, [output_stack.ptr]
+	call _sys_free
+	mov rdi, [input_stack.ptr]
+	call _sys_free
+
 	xor eax, eax
 	xor edi, edi
 	mov al, 0x3C
@@ -38,7 +60,8 @@ _start:
 
 main_loop:
 	call _skip_whitespace
-	call _getchar
+	call _peek
+	call _consume
 	or al, al
 	je .end_loop
 	cmp al, '['
@@ -70,7 +93,10 @@ _parse_byte_list:	; (void) -> void*
 	call _peek
 	; if al is a whitespace then the current number is done
 	; if al is ] the bracket is done
+	; if al is \ then we should do a macro check
 	cmp al, ']'
+	je .numdone
+	cmp al, '\'
 	je .numdone
 	cmp al, 0x09
 	je .numdone
@@ -100,7 +126,6 @@ _parse_byte_list:	; (void) -> void*
 	push rbx
 	jmp .numloop
 .numdone:
-
 	pop [writebuf]
 	pop rcx ; get number of digits from the stack
 	shr ecx, 1 ; convert from digits to bytes
@@ -128,6 +153,14 @@ _parse_byte_list:	; (void) -> void*
 	add r12d, ecx
 .no_digits:
 	call _peek
+	cmp al, '\'
+	jne .not_macro
+		call _consume
+		xor eax, eax
+		dec eax
+		call _macro
+		jmp .continue
+	.not_macro:
 	cmp al, ']'
 	jne .continue
 	call _consume
@@ -143,13 +176,14 @@ _parse_byte_list:	; (void) -> void*
 _open_bracket:
 	call _parse_byte_list
 	push rax
+
 	mov rsi, rax
 	lodsd
-	xchg eax, edx
-	xor eax, eax
-	inc eax
-	mov edi, eax
-	syscall
+
+	mov rdi, rsi
+	xchg eax, esi
+	call _outs
+
 	pop rdi
 	call _sys_free
 	jmp main_loop
@@ -162,25 +196,13 @@ _comment:
 	je main_loop
 	jmp _comment
 
-_macro:
+_macro: ; if ax is FFFF _macro will return instead of jmp to mainloop
 	; If the first character is a symbol, then that is the identifier,
 	; otherwise the identifier is each alphabetic character which follows
-	push 0x01
-	call _peek
-	xor ecx, ecx
-	mov cl, SYMBOL_COUNT
-	mov rdi, symbols
-	repne scasb
-	je .symbol_identifier	; if AL is a symbol, then we have the whole
-				; identifier
+	and rax, 0xFFFF
+	push rax
 	call _get_identifier
-	mov [rsp], rax ; length is on the stack
-
-	jmp .found_identifier
-.symbol_identifier:
-	call _consume
-	mov rdi, identifier
-	stosb
+	push rax
 .found_identifier:
 ; test identifier
 ;push rdi
@@ -199,7 +221,7 @@ _macro:
 ;pop rdi
 
 	; search through macros
-	mov rbx, las_macros.null
+	mov rbx, [latest]
 .macro_loop:
 	mov ecx, [rsp]
 	mov rsi, [rbx]
@@ -212,11 +234,20 @@ _macro:
 .next:
 	mov rbx, [rbx + LAS_MACRO.next]
 	or rbx, rbx
-	je .error
+	jz .list_exhausted
 	jmp .macro_loop
 .found_macro:
-	pop rcx
+	push rbx
+	mov rcx, [rsp + 0x08]
 	mov rax, [rbx + LAS_MACRO.flags]
+	test byte [isimmediate], 0xFF
+	jz .not_immediate
+		test [rbx + LAS_MACRO.flags], LAS_IMMEDIATE
+		jnz .not_immediate
+		pop rbx
+		pop rdi
+		jmp .return
+	.not_immediate:
 	test [rbx + LAS_MACRO.flags], LAS_EMBEDDED
 	jnz .embed
 	test [rbx + LAS_MACRO.flags], LAS_LIST
@@ -225,24 +256,55 @@ _macro:
 	jnz .strmacro
 .error:
 	int3
+.list_exhausted:
+	pop rdi
+	test [isimmediate], 0xFF
+	jz .error
+	jmp short .return
 .embed:
 	call [rbx + LAS_MACRO.ptr]
-	jmp main_loop
+	pop rbx
+	pop rax
+	xor edi, edi
+	test [rbx + LAS_MACRO.flags], LAS_IMMEDIATE
+	jnz .return
+	mov rdi, rax
+	jmp .return
 .list:
 	mov rsi, [rbx + LAS_MACRO.ptr]
 	lodsd
-	xchg eax, edx
-	xor eax, eax
-	inc eax
-	mov edi, eax
-	syscall
-	jmp main_loop
+	mov rdi, rsi
+	xchg eax, esi
+	call _outs
+	pop rbx
+	pop rax
+	xor edi, edi
+	test [rbx + LAS_MACRO.flags], LAS_IMMEDIATE
+	jnz .return
+	mov rdi, rax
+	jmp .return
 .strmacro:
 	mov rsi, [rbx + LAS_MACRO.ptr]
 	lodsd
 	xchg eax, edi
 	xchg rdi, rsi
-	call _input_append
+	mov rdx, input_stack
+	call _io_append
+	mov rsi, [input_stack.ptr]
+	pop rbx
+	pop rax
+	xor edi, edi
+	test [rbx + LAS_MACRO.flags], LAS_IMMEDIATE
+	jnz .return
+	mov rdi, rax
+.return:
+	pop rax
+	inc ax
+	jnz .jump_return
+	mov al, dil
+	ret
+.jump_return:
+	mov al, dil
 	jmp main_loop
 
 _add_macro: ; (void) -> LAS_MACRO*
@@ -272,13 +334,8 @@ _add_macro: ; (void) -> LAS_MACRO*
 	ret
 
 MAC_null:
-	mov byte [writebuf], 0x00
-	xor eax, eax
-	inc eax
-	mov edi, eax
-	mov edx, eax
-	mov rsi, writebuf
-	syscall
+	mov al, 0x00
+	call _outc
 	ret
 
 MAC_define:
@@ -286,9 +343,8 @@ MAC_define:
 	; \\<identifier> { <string> }
 	call _add_macro
 	mov rdi, [latest]
-	mov [rdi], rax
+	mov [rax + LAS_MACRO.next], rdi
 	mov [latest], rax
-	add qword [latest], LAS_MACRO.next
 	call _get_identifier
 	push rax ; name length
 	mov rdi, rax
@@ -303,13 +359,11 @@ MAC_define:
 	pop rax ; name length
 	mov dword [rdi], eax
 	mov rsi, [latest]
-	sub rsi, LAS_MACRO.next
 	mov [rsi + LAS_MACRO.name], rdi
 	mov [rsi + LAS_MACRO.flags], 0x00 ; not embedded
-	mov [rsi + LAS_MACRO.next], 0x00 ; fix the list
 
 ;; debug macros
-;	mov rbx, las_macros.null
+;	mov rbx, [latest]
 ;.dbg_loop:
 ;	mov rsi, [rbx + LAS_MACRO.name]
 ;	lodsd
@@ -327,6 +381,11 @@ MAC_define:
 	call _skip_whitespace
 	call _getchar
 
+	cmp al, '*'
+	jne .immediate_handled
+	or [rsi + LAS_MACRO.flags], LAS_IMMEDIATE
+	call _getchar
+.immediate_handled:
 	cmp al, '['
 	je MACdef_byte_list
 	cmp al, '{'
@@ -336,9 +395,8 @@ MAC_define:
 MACdef_byte_list:
 	call _parse_byte_list
 	mov rsi, [latest]
-	sub rsi, LAS_MACRO.next
 	mov [rsi + LAS_MACRO.ptr], rax
-	mov [rsi + LAS_MACRO.flags], LAS_LIST
+	or [rsi + LAS_MACRO.flags], LAS_LIST
 	jmp main_loop
 MACdef_strmacro:
 	; &content	r12
@@ -354,8 +412,7 @@ MACdef_strmacro:
 	call _sys_malloc
 
 	mov r12, [latest]
-	sub r12, LAS_MACRO.next
-	mov [r12 + LAS_MACRO.flags], LAS_STRMACRO
+	or [r12 + LAS_MACRO.flags], LAS_STRMACRO
 	add r12, LAS_MACRO.ptr
 	mov [r12], rax
 	mov r13d, 0x04		; length
@@ -368,20 +425,67 @@ MACdef_strmacro:
 	cmp al, '`'
 	jne .not_escaped
 		call _getchar
-		jmp short .add_char
+		jmp .add_char
 	.not_escaped:
 	cmp al, '}'
 	jne .not_close
 		dec r15
 		jz .end_loop
-		jmp short .add_char
+		jmp .add_char
 	.not_close:
 	cmp al, '{'
 	jne .not_open
 		inc r15
 		jz .end_loop
-		jmp short .add_char
+		jmp .add_char
 	.not_open:
+	cmp al, '\'
+	jne .not_macro
+		mov al, [isimmediate]
+		push rax
+		mov byte [isimmediate], 0xFF
+		xor eax, eax
+		dec eax
+		call _macro
+		mov rdi, rax
+		pop rax
+		mov [isimmediate], al
+
+		push rdi
+		push identifier
+		or rdi, rdi
+		jz .no_identifier
+			mov al, '\'
+			jmp .idenaddchar
+		.idenloop:
+			mov rsi, [rsp]
+			lodsb
+			mov [rsp], rsi
+			dec qword [rsp + 0x08]
+			cmp qword [rsp + 0x08], -1
+			je .no_identifier
+		.idenaddchar:
+			mov rdi, [r12]
+			add rdi, r13
+			stosb
+			inc r13d
+
+			cmp r13d, r14d
+			jb .idenloop
+			; we need to realloc rbx and do all that
+			add r14d, PAGE_SIZE
+
+			mov rdi, [r12]
+			mov esi, r14d
+			call _sys_realloc ; realloc buffer
+			mov [r12], rax
+			jmp .idenloop
+		.no_identifier:
+		pop rdi
+		pop rdi
+
+		jmp .loop
+	.not_macro:
 .add_char:
 	mov rdi, [r12]
 	add rdi, r13
@@ -391,7 +495,6 @@ MACdef_strmacro:
 	cmp r13d, r14d
 	jb .loop
 	; we need to realloc rbx and do all that
-	int3
 	add r14d, PAGE_SIZE
 
 	mov rdi, [r12]

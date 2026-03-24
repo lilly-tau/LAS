@@ -1,14 +1,6 @@
-; This is a comment
 
-\\program{ ; This is a text macroabcdefg
-\\movax`{[B8]`}
-\\int[CD]
-\\incax[40]
+\\({\\$`{}
+\\)*{`}}
+\\movax{[B8 \$]}
 
-\movax[0E48]
-\int[10]
-\incax
-\int[10]
-}
-
-\program
+\(0E48\)\movax

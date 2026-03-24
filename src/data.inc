@@ -6,6 +6,8 @@ SYMBOL_COUNT = $ - symbols
 
 segment readable writeable
 
+isimmediate db 0x00
+
 input:
 .length dd 0x00
 .content rb PAGE_SIZE
@@ -32,7 +34,7 @@ LAS_MACRO:
 sizeof.LAS_MACRO = $
 end virtual
 
-latest dq las_macros.def.next
+latest dq las_macros.null
 las_macros:
 .null:
 .null.name	dq .names.null
@@ -48,14 +50,24 @@ las_macros:
 	strdef .names.def, "\"
 	strdef .names.null, "null"
 
-virtual at 0
-INPUT_OBJ:
-.index		dd 0x00
-.capacity	dd 0x00
-.buffer		dq 0x00
-sizeof.INPUT_OBJ = $
-end virtual
-input_stack:
+struc io_stack
+label .
 .ptr		dq 0
 .top		dd 0
 .capacity	dd 0
+end struc
+
+virtual at 0
+IO_OBJ:
+.index		dd 0x00
+.capacity	dd 0x00
+.buffer		dq 0x00
+sizeof.IO_OBJ = $
+end virtual
+virtual at 0
+IO_STACK io_stack
+end virtual
+
+input_stack io_stack
+output_stack io_stack
+

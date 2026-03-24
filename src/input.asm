@@ -1,40 +1,116 @@
 
-_input_init: ; (void)
+_io_init: ; (void*)
 	; initialize the input stack
-	mov dword [input_stack.top], 0x00
-	mov dword [input_stack.capacity], PAGE_SIZE / sizeof.INPUT_OBJ
+	mov dword [rdi + IO_STACK.top], 0x00
+	mov dword [rdi + IO_STACK.capacity], PAGE_SIZE / sizeof.IO_OBJ
+	push rdi
 	mov edi, PAGE_SIZE
 	call _sys_malloc
-	mov qword [input_stack.ptr], rax
+	pop rdi
+	mov qword [rdi + IO_STACK.ptr], rax
 	mov rsi, rax
 	ret
-_input_append: ; (void *buffer, size_t capacity)
+_io_append: ; (void *buffer, size_t capacity, io_stack*)
+	push r12
 	push rdi
 	push rsi
-	mov eax, [input_stack.top]
-	inc dword [input_stack.top]
-	cmp eax, [input_stack.capacity]
+
+	mov r12, rdx
+	mov eax, [r12 + IO_STACK.top]
+	inc dword [r12 + IO_STACK.top]
+	cmp eax, [r12 + IO_STACK.capacity]
 	jb .no_realloc
-		mov rdi, [input_stack.ptr]
-		inc [input_stack.capacity]
-		mov esi, [input_stack.capacity]
-		mov eax, sizeof.INPUT_OBJ
+		mov rdi, [r12 + IO_STACK.ptr]
+		inc [r12 + IO_STACK.capacity]
+		mov esi, [r12 + IO_STACK.capacity]
+		mov eax, sizeof.IO_OBJ
 		mul esi
 		xchg eax, esi
 		call _sys_realloc
-		mov [input_stack.ptr], rax
+		mov [r12 + IO_STACK.ptr], rax
 	.no_realloc:
 	pop rsi
 	pop rdi
-	mov eax, [input_stack.top]
+	mov eax, [r12 + IO_STACK.top]
 	dec eax
-	mov ecx, sizeof.INPUT_OBJ
+	mov ecx, sizeof.IO_OBJ
 	mul ecx
-	mov rbx, [input_stack.ptr]
+	mov rbx, [r12 + IO_STACK.ptr]
 	add rbx, rax
-	mov dword [rbx], 0x00
-	mov dword [rbx + 0x04], esi
-	mov qword [rbx + 0x08], rdi
+	mov dword [rbx + IO_OBJ.index], 0x00
+	mov dword [rbx + IO_OBJ.capacity], esi
+	mov qword [rbx + IO_OBJ.buffer], rdi
+	pop r12
+	ret
+
+_outc: ; (char al) -> void
+	mov edx, eax
+	mov edi, [output_stack.top]
+	mov eax, sizeof.IO_OBJ
+	mul edi
+	mov rsi, [output_stack.ptr]
+	add rsi, rax
+	mov ecx, [rsi + IO_OBJ.index]
+	mov eax, [rsi + IO_OBJ.capacity]
+	cmp ecx, eax
+	jb .no_realloc
+		push rcx
+		push rdx
+		push rsi
+		add dword [rsi + IO_OBJ.capacity], PAGE_SIZE
+		mov rdi, [rsi + IO_OBJ.buffer]
+		mov esi, [rsi + IO_OBJ.capacity]
+		call _sys_realloc
+		pop rsi
+		mov [rsi + 0x08], rax
+		pop rax
+		pop rcx
+	.no_realloc:
+	mov rdi, [rsi + IO_OBJ.buffer]
+	add rdi, rcx
+	stosb
+	inc dword [rsi + IO_OBJ.index]
+	ret
+_outs: ; (void *str, size_t)
+	push r12
+	push r13
+	mov r12, rdi
+	mov r13, rsi
+
+	mov edx, eax
+	mov edi, [output_stack.top]
+	mov eax, sizeof.IO_OBJ
+	mul edi
+	mov rsi, [output_stack.ptr]
+	add rsi, rax
+	add dword [rsi], r13d
+	mov ecx, [rsi]
+	mov eax, [rsi + 0x04]
+	cmp ecx, eax
+	jb .no_realloc
+	.realloc:
+		push rsi
+		add dword [rsi + 0x04], PAGE_SIZE
+		mov rdi, [rsi + 0x08]
+		mov esi, [rsi + 0x04]
+		call _sys_realloc
+		pop rsi
+		mov [rsi + 0x08], rax
+		mov ecx, [rsi]
+		mov eax, [rsi + 0x04]
+		cmp ecx, eax
+		jnb .realloc
+		pop rsi
+	.no_realloc:
+	mov ecx, [rsi]
+	mov rdi, [rsi + 0x08]
+	add rdi, rcx
+	mov rsi, r12
+	mov ecx, r13d
+	sub rdi, rcx
+	rep movsb
+	pop r13
+	pop r12
 	ret
 
 _peek: ; (void) -> char
@@ -45,22 +121,21 @@ _peek: ; (void) -> char
 	jz .stdin
 	dec eax
 
-	or eax, eax
-	jz .nodbg
-.nodbg:
-	mov ebx, sizeof.INPUT_OBJ
+	mov ebx, sizeof.IO_OBJ
 	mul ebx
 
 	mov rsi, [input_stack.ptr]
 	add rsi, rax
-	mov ecx, [rsi]	; ecx = length
-	mov eax, [rsi + 0x04]
+	mov ecx, [rsi + IO_OBJ.index]	; ecx = length
+	mov eax, [rsi + IO_OBJ.capacity]
 	cmp ecx, eax
 	jb .no_pop
+		mov rdi, [rsi + IO_OBJ.buffer]
+		call _sys_free
 		dec [input_stack.top]
 		jmp short .next_buffer
 	.no_pop:
-	mov rax, [rsi + 0x08]	; rsi = buffer
+	mov rax, [rsi + IO_OBJ.buffer]	; rsi = buffer
 	add rax, rcx
 	mov al, [rax]
 	ret
@@ -99,22 +174,22 @@ _consume:
 	jz .stdin
 	dec eax
 
-	mov ebx, sizeof.INPUT_OBJ
+	mov ebx, sizeof.IO_OBJ
 	mul ebx
 	mov rsi, [input_stack.ptr]
 	add rsi, rax
-	inc dword [rsi]
+	inc dword [rsi + IO_OBJ.index]
 	pop rax
 	ret
 .stdin:
 	inc [input.pointer]
 	pop rax
 	ret
+
+
 _getchar:
 	call _peek
-	push rax
 	call _consume
-	pop rax
 	ret
 
 _skip_whitespace:
@@ -134,7 +209,20 @@ _skip_whitespace:
 	ret
 
 _get_identifier:
-	push 0x00
+	push 0x01
+	call _peek
+	xor ecx, ecx
+	mov cl, SYMBOL_COUNT
+	mov rdi, symbols
+	repne scasb
+	jne .identifier
+	call _consume
+	mov rdi, identifier
+	stosb
+	pop rax
+	ret
+.identifier:
+	dec qword [rsp]
 .ident_loop:
 	call _peek
 	cmp al, 0x41
