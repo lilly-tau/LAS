@@ -1,5 +1,9 @@
 segment readable
 
+macro_names:
+	strdef .def, "\"
+	strdef .immcall, "*"
+	strdef .null, "null"
 
 symbols db "~!@#$%^&*()_+`-={}[]|\;':<>,.?/", 0x22
 SYMBOL_COUNT = $ - symbols
@@ -8,10 +12,7 @@ segment readable writeable
 
 isimmediate db 0x00
 
-input:
-.length dd 0x00
-.content rb PAGE_SIZE
-.pointer dd 0x00
+input buffer $, PAGE_SIZE
 
 identifier:
 .length dd 0x00
@@ -25,30 +26,13 @@ udef_macros.length dd ? ; only allowing 4GB of macros seems fine
 udef_macros.capacity dd ?
 udef_macros dq 0x00 ; should be mmapped
 
-virtual at 0
-LAS_MACRO:
-	.name	dq 0x00
-	.ptr	dq 0x00
-	.flags	dq 0x00
-	.next   dq 0x00
-sizeof.LAS_MACRO = $
-end virtual
-
 latest dq las_macros.null
 las_macros:
-.null:
-.null.name	dq .names.null
-.null.ptr	dq MAC_null
-.null.flags	dq LAS_EMBEDDED
-.null.next	dq .def
-.def:
-.def.name	dq .names.def
-.def.ptr	dq MAC_define
-.def.flags	dq LAS_EMBEDDED
-.def.next	dq 0x00
-.names:
-	strdef .names.def, "\"
-	strdef .names.null, "null"
+.null las_macro		macro_names.null, MAC_null, LAS_EMBEDDED, .immcall
+.immcall las_macro	macro_names.immcall, MAC_immcall,\
+			LAS_EMBEDDED or LAS_IMMEDIATE, .def
+.def las_macro		macro_names.def, MAC_define, LAS_EMBEDDED, 0x00
+
 
 struc io_stack
 label .

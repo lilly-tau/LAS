@@ -2,6 +2,7 @@ format elf64 executable 3
 entry _start
 include 'const.inc'
 include 'data.inc'
+include 'struc.inc'
 include 'mac.inc'
 
 segment readable executable
@@ -9,6 +10,7 @@ include 'input.asm'
 include 'sys.asm'
 
 _start:
+	call _readin
 	mov rdi, input_stack
 	call _io_init
 	mov rdi, output_stack
@@ -237,6 +239,8 @@ _macro: ; if ax is FFFF _macro will return instead of jmp to mainloop
 	jz .list_exhausted
 	jmp .macro_loop
 .found_macro:
+	test qword [rbx + LAS_MACRO.flags], LAS_UNFINISHED
+	jnz .next
 	push rbx
 	mov rcx, [rsp + 0x08]
 	mov rax, [rbx + LAS_MACRO.flags]
@@ -338,6 +342,26 @@ MAC_null:
 	call _outc
 	ret
 
+MAC_immcall:
+	call _skip_whitespace
+	call _getchar
+	cmp al, '\'
+	jne .error
+
+	mov al, [isimmediate]
+	push rax
+
+	mov byte [isimmediate], 0x00
+
+	mov ax, 0xFFFF
+	call _macro
+
+	pop rax
+	mov [isimmediate], al
+	ret
+.error:
+	int3
+
 MAC_define:
 	; \\<identifier> [ <list> ]
 	; \\<identifier> { <string> }
@@ -360,7 +384,7 @@ MAC_define:
 	mov dword [rdi], eax
 	mov rsi, [latest]
 	mov [rsi + LAS_MACRO.name], rdi
-	mov [rsi + LAS_MACRO.flags], 0x00 ; not embedded
+	mov [rsi + LAS_MACRO.flags], LAS_UNFINISHED ; not embedded
 
 ;; debug macros
 ;	mov rbx, [latest]
@@ -392,11 +416,13 @@ MAC_define:
 	je MACdef_strmacro
 .error:
 	int3
+
 MACdef_byte_list:
 	call _parse_byte_list
 	mov rsi, [latest]
 	mov [rsi + LAS_MACRO.ptr], rax
 	or [rsi + LAS_MACRO.flags], LAS_LIST
+	and [rsi + LAS_MACRO.flags], not LAS_UNFINISHED
 	jmp main_loop
 MACdef_strmacro:
 	; &content	r12
@@ -517,6 +543,8 @@ MACdef_strmacro:
 	pop r14
 	pop r13
 	pop r12
+	mov rsi, [latest]
+	and [rsi + LAS_MACRO.flags], not LAS_UNFINISHED
 	jmp main_loop
 .error:
 	int3

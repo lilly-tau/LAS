@@ -17,3 +17,4 @@ define LAS_LIST		0x2	; Macro is a byte list '[]'
 define LAS_STRMACRO	0x4	; Macro is a string macro '{}'
 define LAS_IMMEDIATE	0x8	; Macro should be ran as soon as it is
 				; encountered
+define LAS_UNFINISHED	0x10	; Macro should not be run

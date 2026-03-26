@@ -140,31 +140,35 @@ _peek: ; (void) -> char
 	mov al, [rax]
 	ret
 .stdin:
-	mov ecx, [input.pointer]
-	cmp ecx, [input.length]
-	jae .readin
-	cmp dword [input.length], 0
-	je .readin
-	jmp short .no_readin
-	.readin:
-		xor eax, eax
-		xor edi, edi
-		mov rsi, input.content
-		mov edx, PAGE_SIZE
-		syscall
+	mov ecx, [input.length]
+	cmp ecx, [input.capacity]
+	jb .no_readin
+		call _readin
 		or al, al
-		jnz .finish_readin
-			ret
-		.finish_readin:
-		mov dword [input.length], eax
+		jnz .continue_readin
+		ret
+	.continue_readin:
 		xor ecx, ecx
 	.no_readin:
 
 	mov al, [rcx + input.content]
 	cmp al, 0x0A
 	jne .return
-		inc [line]
-	.return:
+	inc [line]
+.return:
+	ret
+
+_readin:
+	xor eax, eax
+	xor edi, edi
+	mov rsi, input.content
+	mov edx, PAGE_SIZE
+	syscall
+	or al, al
+	jnz .finish_readin
+		ret
+	.finish_readin:
+	mov dword [input.capacity], eax
 	ret
 
 _consume:
@@ -182,7 +186,7 @@ _consume:
 	pop rax
 	ret
 .stdin:
-	inc [input.pointer]
+	inc [input.length]
 	pop rax
 	ret
 
