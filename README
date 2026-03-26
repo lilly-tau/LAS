@@ -1,0 +1,110 @@
+	== Lilly's Assembler (LAS) ==
+
+LAS is a macro engine for the use of assembly programs. This document aims to
+describe reasonably accurately the intended function of that engine and its
+inbuilt macros. Below is a simple example:
+
+	; For the 8086, similar to the following
+	; mov ax, 0x0E48
+	; int 0x10
+	; inc ax
+	; int 0x10
+	; Would print 'HI' to the legacy BIOS terminal if formatted as a
+	; boot sector.
+	
+	\\ldi[B8] ; load 16 bit immediate into accumulator
+	\\inc[40] ; increment accumulator
+	\\int[CD] ; software interrupt
+	
+	\ldi[0E48]
+	\int[10]
+	\inc
+	\int[10]
+
+	== Input Output ==
+
+LAS does I/O through four routines: peek, consume, outc, and outs. Input and
+output are arranged as a series of buffers sat upon a stack. The bottom of the
+input stack reads from stdin while the bottom of the output stack is written
+to stdout by the end of the program.
+
+Peek reads one character from the top of the input stack, in the case that the
+top of the input stack is empty, it is removed seamlessly and the character is
+taken from the new top of the stack, if the bottom of the stack is removed,
+then the character returned is ASCII NUL (0x00). Consume removes the character
+that would be peeked from the top of the input stack. To be clear, peek reads
+a character while consume removes it.
+
+Outc pushes one character to the top of the output stack, while outs pushes
+a given memory to the top of the output stack.
+
+	== Base syntax ==
+
+LAS is built primarily of two forms: byte lists and macro invokations.
+
+Byte lists are formatted as a series of hexadecimal numbers enclosed in square
+brackets ('[]'), these numbers are to be a power of two in length, and less
+than 16 characters in length. Upon execution the byte list each byte shall be
+outputted to the topmost output buffer. A byte list may include a macro.
+
+Macro invokations begin with '\' and are followed by an identifier. An
+identifier is defined by either a single one of the following characters:
+"~!@#$%^&*()`-=+[]{}\|:;'<>,./?", double quotes, or any number of alphabetic
+characters. Upon being read, a macro invokation shall be executed according to
+its definition, which may either be a builtin macro (spoken of later) or a
+user defined macro.
+
+	== Builtin Macros ==
+
+LAS has the following builtin macros:
+
+	null:	Equivalent to `[ 00 ]'
+	\:	Defines a macro. It is to be followed by the macro identifier
+		and then either a byte list or some text enclosed in '{' '}'.
+		In the case a byte list is used, it will be executed upon
+		definition and the result instantiated upon the macro
+		invokation. Otherwise, if it is scoped text, that text shall be
+		copied to a buffer, immediate macros being invoked as they are
+		encountered, that buffer is executed at macro invokation. If
+		the macro identifier is followed by '*' (before the macro
+		contents) the macro is considered immediate.
+	*:	An immediate macro which is followed by a macro invokation
+		which shall be run as though it is immediate.
+
+	== Examples ==
+
+Byte list usage:
+
+	[ 12345678 ]
+	; compiles to the following bytes in the following order:
+	; 78 56 34 12
+
+Byte list macro definition and use:
+
+	\\var[ DE AD BE EF ]
+	\\result[ 12345678 \var ]
+	\result
+	; compiles to the following result:
+	; 78 56 34 12 DE AD BE EF
+
+String macro definition and use:
+
+	\\dead{[DE AD]}
+	\\beef{[BE EF]}
+	\\deadbeef{\dead\beef}
+	\deadbeef
+	; compiles to the following result:
+	; DE AD BE EF
+
+Immediate macro use:
+
+	\\imm*{[DE AD]}
+	\\macro{\imm}
+	\\imm{[BE EF]}
+	\macro\imm ; compiles to: DE AD BE EF
+
+Use of the * macro:
+	\\imm{[DE AD]}
+	\\macro{\*\imm}
+	\\imm{[BE EF]}
+	\macro\imm ; compiles to: DE AD BE EF
