@@ -1,7 +1,11 @@
+;\\${[DE AD BE EF]}
+;\\${[ 00 ]}
+;\purge\$
+;\$
 
-\\movax{[B8 \$]}
-
-\\${48}
-\\${\*\$ 0E}
-
-\movax
+\\deadbeef[DE AD BE EF]
+\\deadbeef[00]
+\purge\deadbeef
+\deadbeef
+\purge\deadbeef
+\ppurge\deadbeef

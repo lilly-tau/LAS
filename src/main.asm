@@ -198,6 +198,42 @@ _comment:
 	je main_loop
 	jmp _comment
 
+_find_macro: ; (length) -> (macro, prev)
+	push r12
+	push r13 ; prev macro
+	mov r12d, edi
+	mov r13, 0
+	mov rbx, [latest]
+.macro_loop:
+	mov ecx, r12d
+	mov rsi, [rbx]
+	lodsd
+	cmp eax, ecx
+	jne .next
+	mov rdi, identifier
+	repe cmpsb
+	je .found_macro
+.next:
+	mov r13, rbx
+	mov rbx, [rbx + LAS_MACRO.next]
+	or rbx, rbx
+	jz .list_exhausted
+	jmp .macro_loop
+.list_exhausted:
+	mov rax, 0x00
+	mov rdi, r13
+	pop r13
+	pop r12
+	ret
+.found_macro:
+	test qword [rbx + LAS_MACRO.flags], LAS_UNFINISHED
+	jnz .next
+	mov rax, rbx
+	mov rdi, r13
+	pop r13
+	pop r12
+	ret
+
 _macro: ; if ax is FFFF _macro will return instead of jmp to mainloop
 	; If the first character is a symbol, then that is the identifier,
 	; otherwise the identifier is each alphabetic character which follows
@@ -223,24 +259,16 @@ _macro: ; if ax is FFFF _macro will return instead of jmp to mainloop
 ;pop rdi
 
 	; search through macros
-	mov rbx, [latest]
-.macro_loop:
-	mov ecx, [rsp]
-	mov rsi, [rbx]
-	lodsd
-	cmp eax, ecx
-	jne .next
-	mov rdi, identifier
-	repe cmpsb
-	je .found_macro
-.next:
-	mov rbx, [rbx + LAS_MACRO.next]
-	or rbx, rbx
-	jz .list_exhausted
-	jmp .macro_loop
-.found_macro:
-	test qword [rbx + LAS_MACRO.flags], LAS_UNFINISHED
-	jnz .next
+	mov rdi, [rsp]
+	call _find_macro
+	or rax, rax
+	jnz .found_macro
+		pop rdi
+		test byte [isimmediate], 0xFF
+		jz .error
+		jmp .return
+	.found_macro:
+	mov rbx, rax
 	push rbx
 	mov rcx, [rsp + 0x08]
 	mov rax, [rbx + LAS_MACRO.flags]
@@ -260,11 +288,6 @@ _macro: ; if ax is FFFF _macro will return instead of jmp to mainloop
 	jnz .strmacro
 .error:
 	int3
-.list_exhausted:
-	pop rdi
-	test [isimmediate], 0xFF
-	jz .error
-	jmp short .return
 .embed:
 	call [rbx + LAS_MACRO.ptr]
 	pop rbx
@@ -361,6 +384,75 @@ MAC_immcall:
 	ret
 .error:
 	int3
+
+MAC_purge:
+	call _skip_whitespace
+	call _getchar
+	xor edi, edi
+	dec edi
+	cmp al, '\'
+	je _purge_macro
+.error:
+	int3
+
+MAC_ppurge:
+	call _skip_whitespace
+	call _getchar
+	xor edi, edi
+	cmp al, '\'
+	je _purge_macro
+	ret
+
+_purge_macro: ; (bool should_error)
+	; delete a macro from the list
+	; first find the macro, if it doesn't exist, get fucked i suppose...
+	push r12
+	push r13
+	push rdi
+
+	call _get_identifier
+	mov rdi, rax
+	call _find_macro
+	or al, al
+	jnz .macro_was_found
+		pop rdi ; rdi = argument
+		or edi, edi
+		jnz .error
+		pop r13
+		pop r12
+		ret
+	.macro_was_found:
+	mov r12, rdi
+	mov r13, rax
+	pop rax
+	; r12 = prev
+	; r13 = current
+	; r13.next = next
+	; So i guess all I do is free the name buffer, free the contents buffer
+	; and then link r12.next to r13.next
+
+	test [r13 + LAS_MACRO.flags], LAS_EMBEDDED
+	jnz .dont_free
+	mov rdi, [r13 + LAS_MACRO.name]
+	call _sys_free
+	mov rdi, [r13 + LAS_MACRO.ptr]
+	call _sys_free
+.dont_free:
+	or r12, r12
+	jnz .prev_exists
+		mov rdi, [r13 + LAS_MACRO.next]
+		mov [latest], rdi ; WHY?? TODO: last problem
+		jmp short .return
+	.prev_exists:
+	mov rdi, [r13 + LAS_MACRO.next]
+	mov [r12 + LAS_MACRO.next], rdi
+.return:
+	pop r12
+	pop r13
+	ret
+.error:
+	int3
+	
 
 MAC_define:
 	; \\<identifier> [ <list> ]

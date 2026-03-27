@@ -4,6 +4,8 @@ macro_names:
 	strdef .def, "\"
 	strdef .immcall, "*"
 	strdef .null, "null"
+	strdef .upurge, "purge"
+	strdef .ppurge, "ppurge"
 
 symbols db "~!@#$%^&*()_+`-={}[]|\;':<>,.?/", 0x22
 SYMBOL_COUNT = $ - symbols
@@ -30,7 +32,9 @@ latest dq las_macros.null
 las_macros:
 .null las_macro		macro_names.null, MAC_null, LAS_EMBEDDED, .immcall
 .immcall las_macro	macro_names.immcall, MAC_immcall,\
-			LAS_EMBEDDED or LAS_IMMEDIATE, .def
+			LAS_EMBEDDED or LAS_IMMEDIATE, .upurge
+.upurge las_macro	macro_names.upurge, MAC_purge, LAS_EMBEDDED, .ppurge
+.ppurge las_macro	macro_names.ppurge, MAC_ppurge, LAS_EMBEDDED, .def
 .def las_macro		macro_names.def, MAC_define, LAS_EMBEDDED, 0x00
 
 
