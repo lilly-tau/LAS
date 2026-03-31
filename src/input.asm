@@ -213,6 +213,12 @@ _skip_whitespace:
 	ret
 
 _get_identifier:
+	test [report_identifier], 0x01
+	jz .no_reported
+	mov [report_identifier], 0x00
+	mov eax, [identifier.length]
+	ret
+.no_reported:
 	push 0x01
 	call _peek
 	xor ecx, ecx

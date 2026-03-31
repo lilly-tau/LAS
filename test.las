@@ -1,11 +1,15 @@
-;\\${[DE AD BE EF]}
-;\\${[ 00 ]}
-;\purge\$
-;\$
 
-\\deadbeef[DE AD BE EF]
-\\deadbeef[00]
-\purge\deadbeef
-\deadbeef
-\purge\deadbeef
-\ppurge\deadbeef
+\wordsize2
+
+\\if{\\endif*{```}\mif\$\purge\$\purge\endif}\\$`{}
+
+\[00]
+
+\if
+	[FF FF FF FF]
+\endif
+
+;\\c{\\a*[FF FF]}
+;\c
+;\\b{[00 00] \a [00 00]}
+;\b

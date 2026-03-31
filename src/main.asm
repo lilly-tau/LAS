@@ -2,10 +2,11 @@ format elf64 executable 3
 entry _start
 include 'const.inc'
 include 'data.inc'
-include 'struc.inc'
 include 'mac.inc'
+include 'struc.inc'
 
 segment readable executable
+include 'buffer.asm'
 include 'input.asm'
 include 'sys.asm'
 
@@ -15,6 +16,9 @@ _start:
 	call _io_init
 	mov rdi, output_stack
 	call _io_init
+
+	mov rdi, program_stack
+	call _create_buffer
 
 	mov rdi, PAGE_SIZE
 	call _sys_malloc
@@ -242,7 +246,7 @@ _macro: ; if ax is FFFF _macro will return instead of jmp to mainloop
 	call _get_identifier
 	push rax
 .found_identifier:
-; test identifier
+;; test identifier
 ;push rdi
 ;push rsi
 ;push rdx
@@ -274,6 +278,7 @@ _macro: ; if ax is FFFF _macro will return instead of jmp to mainloop
 	mov rax, [rbx + LAS_MACRO.flags]
 	test byte [isimmediate], 0xFF
 	jz .not_immediate
+		mov rax, [rbx + LAS_MACRO.flags]
 		test [rbx + LAS_MACRO.flags], LAS_IMMEDIATE
 		jnz .not_immediate
 		pop rbx
@@ -385,6 +390,131 @@ MAC_immcall:
 .error:
 	int3
 
+MAC_push:
+	call _parse_byte_list
+	push rsi
+	mov rsi, rax
+	lodsd
+	cmp edx, [word_size]
+	cmova edx, [word_size]
+	mov rdi, program_stack
+	call _push_buffer
+	pop rdi
+	call _sys_free
+	ret
+.error:
+	int3
+
+MAC_drop:
+	mov rdi, program_stack
+	mov esi, [word_size]
+	call _pop_buffer
+	ret
+.error:
+	int3
+
+MAC_wordsize:
+	call _skip_whitespace
+	call _getchar
+	sub al, 0x30
+	xor ecx, ecx
+	cmp al, 0x01
+	cmove ecx, eax
+	cmp al, 0x02
+	cmove ecx, eax
+	cmp al, 0x04
+	cmove ecx, eax
+	cmp al, 0x08
+	cmove ecx, eax
+	or cl, cl
+	jz .error
+	mov byte [word_size], cl
+	ret
+.error:
+	int3
+
+MAC_debug:
+	mov eax, [program_stack + BUFFER.length]
+	cmp eax, [word_size]
+	jb .not_enough_stack
+
+	mov rdi, program_stack
+	mov esi, [word_size]
+	call _pop_buffer
+	enter
+	sub rsp, 0x18
+	; write characters to stack and print
+	xor ecx, ecx
+	mov cl, byte [word_size]
+	shl cl, 1
+	mov rdx, rax
+	mov rdi, rsp
+	add rdi, rcx
+	std
+	mov al, 0x0A
+	stosb
+
+.convert_loop:
+	mov al, dl
+	and al, 0xF
+	cmp al, 0xA
+	jb .not_hex
+		add al, 0x07
+	.not_hex:
+	add al, 0x30
+	stosb
+
+	shr rdx, 0x04
+	loop .convert_loop
+
+	cld
+
+	mov edi, 0x02
+	mov rsi, rsp
+	mov edx, [word_size]
+	shl edx, 1
+	inc edx
+	mov eax, 0x01
+	syscall
+
+	leave
+	ret
+.not_enough_stack:
+	enter
+	push 0x0A00 or '?'
+	mov edi, 0x02
+	mov rsi, rsp
+	mov edx, 0x02
+	mov eax, 0x01
+	syscall
+	leave
+	ret
+
+MAC_mif: ; \mif\macro
+	call _skip_whitespace
+	call _getchar
+	cmp al, '\'
+	jne .error
+
+	mov rdi, program_stack
+	mov esi, [word_size]
+	call _pop_buffer
+	or rax, rax
+	jnz .expand
+	call _get_identifier
+	ret
+.expand:
+	xor eax, eax
+	dec eax
+	call _macro
+	ret
+.error:
+	int3
+
+MAC_breakpoint:
+	int3
+	ret
+
 MAC_purge:
 	call _skip_whitespace
 	call _getchar
@@ -401,11 +531,13 @@ MAC_ppurge:
 	xor edi, edi
 	cmp al, '\'
 	je _purge_macro
-	ret
+.error:
+	int3
 
 _purge_macro: ; (bool should_error)
 	; delete a macro from the list
 	; first find the macro, if it doesn't exist, get fucked i suppose...
+	enter
 	push r12
 	push r13
 	push rdi
@@ -449,6 +581,7 @@ _purge_macro: ; (bool should_error)
 .return:
 	pop r12
 	pop r13
+	leave
 	ret
 .error:
 	int3
@@ -499,7 +632,9 @@ MAC_define:
 
 	cmp al, '*'
 	jne .immediate_handled
-	or [rsi + LAS_MACRO.flags], LAS_IMMEDIATE
+	mov rsi, [latest]
+	or qword [rsi + LAS_MACRO.flags], LAS_IMMEDIATE
+	mov rax, [rsi + LAS_MACRO.flags]
 	call _getchar
 .immediate_handled:
 	cmp al, '['
@@ -515,6 +650,7 @@ MACdef_byte_list:
 	mov [rsi + LAS_MACRO.ptr], rax
 	or [rsi + LAS_MACRO.flags], LAS_LIST
 	and [rsi + LAS_MACRO.flags], not LAS_UNFINISHED
+	mov rax, [rsi + LAS_MACRO.flags]
 	jmp main_loop
 MACdef_strmacro:
 	; &content	r12
@@ -564,13 +700,16 @@ MACdef_strmacro:
 		mov byte [isimmediate], 0xFF
 		xor eax, eax
 		dec eax
+
 		call _macro
 		mov rdi, rax
 		pop rax
 		mov [isimmediate], al
 
+
 		push rdi
 		push identifier
+
 		or rdi, rdi
 		jz .no_identifier
 			mov al, '\'
@@ -627,6 +766,7 @@ MACdef_strmacro:
 ;	mov rsi, [r12]
 ;	mov edx, r13d
 ;	syscall
+
 
 	mov rsi, [r12]
 	sub r13d, 0x04

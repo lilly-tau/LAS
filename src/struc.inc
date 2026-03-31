@@ -23,3 +23,7 @@ else
 .length		dd 0x00
 end match
 end struc
+virtual at 0
+BUFFER buffer ?, ?
+sizeof.BUFFER = $
+end virtual

@@ -6,6 +6,12 @@ macro_names:
 	strdef .null, "null"
 	strdef .upurge, "purge"
 	strdef .ppurge, "ppurge"
+	strdef .mpush, "["
+	strdef .mdrop, "."
+	strdef .debug, "debug"
+	strdef .wordsize, "wordsize"
+	strdef .breakpoint, "breakpoint"
+	strdef .mif, "mif"
 
 symbols db "~!@#$%^&*()_+`-={}[]|\;':<>,.?/", 0x22
 SYMBOL_COUNT = $ - symbols
@@ -15,10 +21,13 @@ segment readable writeable
 isimmediate db 0x00
 
 input buffer $, PAGE_SIZE
+program_stack buffer 0x00, 0x00
+word_size dd 0x04
 
+report_identifier db 0x00
 identifier:
-.length dd 0x00
 .content rb PAGE_SIZE
+.length dd 0x00
 
 writebuf dq ?
 
@@ -34,7 +43,14 @@ las_macros:
 .immcall las_macro	macro_names.immcall, MAC_immcall,\
 			LAS_EMBEDDED or LAS_IMMEDIATE, .upurge
 .upurge las_macro	macro_names.upurge, MAC_purge, LAS_EMBEDDED, .ppurge
-.ppurge las_macro	macro_names.ppurge, MAC_ppurge, LAS_EMBEDDED, .def
+.ppurge las_macro	macro_names.ppurge, MAC_ppurge, LAS_EMBEDDED, .mpush
+.mpush las_macro	macro_names.mpush, MAC_push, LAS_EMBEDDED, .mdrop
+.mdrop las_macro	macro_names.mdrop, MAC_drop, LAS_EMBEDDED, .mif
+.mif las_macro		macro_names.mif, MAC_mif, LAS_EMBEDDED, .debug
+.debug las_macro	macro_names.debug, MAC_debug, LAS_EMBEDDED, .breakpoint
+.breakpoint las_macro	macro_names.breakpoint, MAC_breakpoint, LAS_EMBEDDED,\
+			.wordsize
+.wordsize las_macro	macro_names.wordsize, MAC_wordsize, LAS_EMBEDDED, .def
 .def las_macro		macro_names.def, MAC_define, LAS_EMBEDDED, 0x00
 
 

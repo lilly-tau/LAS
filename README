@@ -58,8 +58,8 @@ user defined macro.
 
 LAS has the following builtin macros:
 
-	null:	Equivalent to `[ 00 ]'
-	\:	Defines a macro. It is to be followed by the macro identifier
+null:		Equivalent to `[ 00 ]'
+\:		Defines a macro. It is to be followed by the macro identifier
 		and then either a byte list or some text enclosed in '{' '}'.
 		In the case a byte list is used, it will be executed upon
 		definition and the result instantiated upon the macro
@@ -68,12 +68,23 @@ LAS has the following builtin macros:
 		encountered, that buffer is executed at macro invokation. If
 		the macro identifier is followed by '*' (before the macro
 		contents) the macro is considered immediate.
-	*:	An immediate macro which is followed by a macro invokation
+*:		An immediate macro which is followed by a macro invokation
 		which shall be run as though it is immediate.
-	purge:	Removes the last definition of a macro, both having the effect
+purge:		Removes the last definition of a macro, both having the effect
 		of deleting a macro, and restoring it to its last definition,
 		if the macro does not exist, errors.
-	ppurge:	Purge without error.
+ppurge:		Purge without error.
+wordsize:	Followed by either '1', '2', '4' or '8', sets the size of a
+		single program stack element to the value specified.
+[:		Followed by a series of bytes and a closing ']' (similar to
+		a regular byte list) and pushes a single stack element from
+		the start of that list.
+.:		Drops the top stack element.
+debug:		Prints the value of the top stack element to stderr.
+breakpoint:	Creates a breakpoint for use with gdb.
+mif:		Followed by a macro invokation, it shall remove the top stack
+		element and if it is zero, then expand that macro invokation,
+		otherwise, skip it.
 
 	== Examples ==
 
@@ -125,3 +136,31 @@ Use of purge and ppurge
 	\ppurge\deadbeef	; No further definitions of deadbeef, but no
 				; error occurs
 	; Compiles to: 00 DE AD BE EF
+
+Use of wordsize, push, drop, and debug macros:
+
+	\wordsize2
+	\[BEEF]
+	\[00 00]
+	\[DEAD]
+	\debug
+	\.
+	\debug
+	; prints:
+	;	DEAD
+	;	BEEF
+	; to stderr.
+
+Use of mif to define a more sensible if statement:
+
+	\\if{\\endif*{```}\mif\$\purge\$\purge\endif}\\$`{}
+	\[ 00 ]
+	\if
+		[ 01 ]
+	\endif
+	\[ 01 ]
+	\if
+		[ 02 ]
+	\endif
+
+	; compiles to: 02
